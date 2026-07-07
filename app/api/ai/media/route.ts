@@ -25,7 +25,8 @@ async function uploadCloudinary(file: string | Blob, resourceType: "image" | "vi
   const cloud = required("NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME");
   const preset = required("NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET");
   const form = new FormData();
-  form.append("file", file, file instanceof Blob ? filename || `ai-${Date.now()}` : undefined);
+  if (file instanceof Blob) form.append("file", file, filename || `ai-${Date.now()}`);
+  else form.append("file", file);
   form.append("upload_preset", preset);
   form.append("folder", "prague-ai-social-manager/ai");
   const response = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/${resourceType}/upload`, {
@@ -118,9 +119,7 @@ export async function GET(request: Request) {
     if (!statusResponse.ok) throw new Error(await openAIError(statusResponse));
     const job = await statusResponse.json();
 
-    if (job.status === "failed") {
-      throw new Error(job?.error?.message || "Generování videa selhalo");
-    }
+    if (job.status === "failed") throw new Error(job?.error?.message || "Generování videa selhalo");
     if (job.status !== "completed") {
       return NextResponse.json({ ok: true, status: job.status, progress: job.progress || 0 });
     }
