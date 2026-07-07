@@ -1,20 +1,390 @@
 "use client";
-import { ChangeEvent,useEffect,useMemo,useRef,useState } from "react";
-import { ImagePlus,Instagram,LoaderCircle,Save,Sparkles,Trash2,UploadCloud } from "lucide-react";
+
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ImagePlus,
+  Instagram,
+  LoaderCircle,
+  Save,
+  Sparkles,
+  Trash2,
+  UploadCloud,
+  Video as VideoIcon,
+  WandSparkles
+} from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-type Client={id:string;name:string;requires_approval:boolean};type Asset={url:string;localUrl?:string;publicId:string;resourceType:"image"|"video"|"raw";uploadStatus:"uploading"|"uploaded"|"error";errorMessage?:string;originalFilename?:string;bytes?:number};
-const tomorrow=()=>{const d=new Date(Date.now()+86400000);return d.toISOString().slice(0,10)};
-export default function NewPost(){const inputRef=useRef<HTMLInputElement>(null);const[clients,setClients]=useState<Client[]>([]);const[clientId,setClientId]=useState("");const[title,setTitle]=useState("");const[brief,setBrief]=useState("");const[caption,setCaption]=useState("");const[date,setDate]=useState(tomorrow);const[time,setTime]=useState("18:00");const[media,setMedia]=useState<Asset[]>([]);const[loading,setLoading]=useState(false);const[saving,setSaving]=useState(false);const[message,setMessage]=useState("");const[platforms,setPlatforms]=useState<string[]>(["instagram"]);
-useEffect(()=>{fetch("/api/clients",{cache:"no-store"}).then(r=>r.json()).then(j=>{setClients(j.data||[]);if(j.data?.[0])setClientId(j.data[0].id)})},[]);const first=media[0];const mediaType=useMemo(()=>media.length>1?"carousel":first?.resourceType==="video"?"reel":"photo",[media,first]);
-async function upload(e:ChangeEvent<HTMLInputElement>){const files=Array.from(e.target.files||[]);e.target.value="";if(!files.length)return;const cloud=process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;const preset=process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;if(!cloud||!preset){setMessage("Cloudinary není nastavené.");return}const pending=files.map((file,i)=>({url:"",localUrl:URL.createObjectURL(file),publicId:`local-${Date.now()}-${i}`,resourceType:file.type.startsWith("video/")?"video" as const:"image" as const,uploadStatus:"uploading" as const,originalFilename:file.name,bytes:file.size,file}));setMedia(m=>[...m,...pending]);for(const p of pending){try{const form=new FormData();form.append("file",p.file);form.append("upload_preset",preset);const r=await fetch(`https://api.cloudinary.com/v1_1/${cloud}/auto/upload`,{method:"POST",body:form});const j=await r.json();if(!r.ok)throw new Error(j.error?.message||"Upload selhal");setMedia(m=>m.map(x=>x.publicId===p.publicId?{...x,url:j.secure_url,publicId:j.public_id,resourceType:j.resource_type,uploadStatus:"uploaded",errorMessage:undefined}:x))}catch(err){setMedia(m=>m.map(x=>x.publicId===p.publicId?{...x,uploadStatus:"error",errorMessage:err instanceof Error?err.message:"Upload selhal"}:x))}}}
-async function generate(){if(!brief.trim()){setMessage("Nejdříve napište krátký brief.");return}setLoading(true);setMessage("");try{const r=await fetch("/api/ai/caption",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({brief,language:"cs",tone:"friendly gastro"})});const j=await r.json();if(!r.ok)throw new Error(j.error);setCaption(j.caption||"");if(j.warning)setMessage(j.warning)}catch(e){setMessage(e instanceof Error?e.message:"AI chyba")}finally{setLoading(false)}}
-async function save(status:"draft"|"scheduled"){setMessage("");if(!clientId||!title.trim()||!caption.trim()){setMessage("Vyberte klienta a vyplňte název i text.");return}if(!media.length||media.some(m=>m.uploadStatus!=="uploaded")){setMessage("Počkejte na dokončení uploadu médií.");return}const scheduledAt=new Date(`${date}T${time}:00`).toISOString();setSaving(true);try{const r=await fetch("/api/posts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:clientId,title,brief,caption,media_type:mediaType,media_urls:media.map(({url,publicId,resourceType,originalFilename,bytes})=>({url,publicId,resourceType,originalFilename,bytes})),scheduled_at:scheduledAt,status,platforms})});const j=await r.json();if(!r.ok)throw new Error(j.error||"Uložení selhalo");setMessage(status==="draft"?"Koncept byl uložen.":"Příspěvek byl naplánován.");if(status==="scheduled")setTimeout(()=>location.href="/posts",700)}catch(e){setMessage(e instanceof Error?e.message:"Uložení selhalo")}finally{setSaving(false)}}
-return <AppShell title="Nový příspěvek" subtitle="Jeden formulář od uploadu až po automatické publikování."><div className="form-shell"><div className="panel form-card"><div className="section-heading"><div><h2>Obsah příspěvku</h2><p>Aplikace sama rozpozná fotografii, Reel nebo carousel.</p></div><span className="badge scheduled">{mediaType}</span></div><div className="form-grid">
-<div className="field"><label>Klient</label><select value={clientId} onChange={e=>setClientId(e.target.value)}><option value="">Vyberte klienta</option>{clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div className="field"><label>Název</label><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Interní název příspěvku"/></div>
-<div className="field full"><label>Média</label><button type="button" className="upload-zone" onClick={()=>inputRef.current?.click()}><UploadCloud size={25}/><span><strong>Nahrát fotografie nebo video</strong><small>JPG, PNG, WEBP, MP4 · automatické rozpoznání formátu</small></span></button><input ref={inputRef} type="file" hidden multiple accept="image/*,video/*" onChange={upload}/>{media.length>0&&<div className="media-list">{media.map(m=><div className="media-row" key={m.publicId}>{m.resourceType==="video"?<video src={m.localUrl||m.url}/>:<img src={m.localUrl||m.url} alt=""/>}<div><strong>{m.originalFilename||m.publicId}</strong><small>{m.uploadStatus}{m.errorMessage?` · ${m.errorMessage}`:""}</small></div><button className="button danger" type="button" onClick={()=>setMedia(x=>x.filter(i=>i.publicId!==m.publicId))}><Trash2 size={14}/></button></div>)}</div>}</div>
-<div className="field full"><label>Brief pro AI</label><textarea value={brief} onChange={e=>setBrief(e.target.value)} placeholder="Co je na obsahu, nabídka, cílová skupina, tón…"/><button type="button" className="button" onClick={generate} disabled={loading}>{loading?<LoaderCircle className="spin" size={16}/>:<Sparkles size={16}/>} Vygenerovat text</button></div>
-<div className="field full"><label>Text příspěvku</label><textarea value={caption} onChange={e=>setCaption(e.target.value)} placeholder="Hotový text příspěvku"/></div>
-<div className="field"><label>Datum</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div><div className="field"><label>Čas (Praha)</label><input type="time" value={time} onChange={e=>setTime(e.target.value)}/></div>
-<div className="field full"><label>Platformy</label><div className="platforms"><label className="platform-pill"><input type="checkbox" checked={platforms.includes("instagram")} onChange={e=>setPlatforms(e.target.checked?[...new Set([...platforms,"instagram"])]:platforms.filter(p=>p!=="instagram"))}/><span><Instagram size={15}/> Instagram</span></label></div></div>
-{message&&<div className={`field full notice ${message.includes("byl")||message.includes("naplánován")?"success":"error"}`}>{message}</div>}</div><div className="form-actions"><button className="button" type="button" disabled={saving} onClick={()=>save("draft")}><Save size={16}/> Uložit koncept</button><button className="button primary" type="button" disabled={saving} onClick={()=>save("scheduled")}><ImagePlus size={16}/> Naplánovat a publikovat</button></div></div>
-<div className="panel preview-card"><div className="section-heading"><div><h2>Náhled</h2><p>Orientační vzhled na Instagramu</p></div></div><div className="phone"><div className="phone-head">Instagram</div><div className="phone-media">{first?(first.resourceType==="video"?<video src={first.localUrl||first.url} controls/>:<img src={first.localUrl||first.url} alt=""/>):<ImagePlus size={42}/>}</div><div className="phone-body"><div className="phone-user"><span className="avatar">AI</span><strong>{clients.find(c=>c.id===clientId)?.name||"Váš klient"}</strong></div><div className="phone-caption">{caption||"Text příspěvku se zobrazí zde."}</div></div></div></div></div></AppShell>}
+
+type Client = { id: string; name: string; requires_approval: boolean };
+type Asset = {
+  url: string;
+  localUrl?: string;
+  publicId: string;
+  resourceType: "image" | "video" | "raw";
+  uploadStatus: "uploading" | "uploaded" | "error";
+  errorMessage?: string;
+  originalFilename?: string;
+  bytes?: number;
+};
+
+const tomorrow = () => {
+  const d = new Date(Date.now() + 86400000);
+  return d.toISOString().slice(0, 10);
+};
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+export default function NewPost() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [clientId, setClientId] = useState("");
+  const [title, setTitle] = useState("");
+  const [brief, setBrief] = useState("");
+  const [caption, setCaption] = useState("");
+  const [date, setDate] = useState(tomorrow);
+  const [time, setTime] = useState("18:00");
+  const [media, setMedia] = useState<Asset[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [aiMediaLoading, setAiMediaLoading] = useState<"image" | "video" | null>(null);
+  const [aiProgress, setAiProgress] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [platforms, setPlatforms] = useState<string[]>(["instagram"]);
+
+  useEffect(() => {
+    fetch("/api/clients", { cache: "no-store" })
+      .then(r => r.json())
+      .then(j => {
+        setClients(j.data || []);
+        if (j.data?.[0]) setClientId(j.data[0].id);
+      });
+  }, []);
+
+  const first = media[0];
+  const mediaType = useMemo(
+    () => (media.length > 1 ? "carousel" : first?.resourceType === "video" ? "reel" : "photo"),
+    [media, first]
+  );
+
+  async function upload(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+    const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const preset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+    if (!cloud || !preset) {
+      setMessage("Cloudinary není nastavené.");
+      return;
+    }
+
+    const pending = files.map((file, i) => ({
+      url: "",
+      localUrl: URL.createObjectURL(file),
+      publicId: `local-${Date.now()}-${i}`,
+      resourceType: file.type.startsWith("video/") ? ("video" as const) : ("image" as const),
+      uploadStatus: "uploading" as const,
+      originalFilename: file.name,
+      bytes: file.size,
+      file
+    }));
+    setMedia(m => [...m, ...pending]);
+
+    for (const p of pending) {
+      try {
+        const form = new FormData();
+        form.append("file", p.file);
+        form.append("upload_preset", preset);
+        const r = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/auto/upload`, {
+          method: "POST",
+          body: form
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error?.message || "Upload selhal");
+        setMedia(m =>
+          m.map(x =>
+            x.publicId === p.publicId
+              ? {
+                  ...x,
+                  url: j.secure_url,
+                  publicId: j.public_id,
+                  resourceType: j.resource_type,
+                  uploadStatus: "uploaded",
+                  errorMessage: undefined
+                }
+              : x
+          )
+        );
+      } catch (err) {
+        setMedia(m =>
+          m.map(x =>
+            x.publicId === p.publicId
+              ? {
+                  ...x,
+                  uploadStatus: "error",
+                  errorMessage: err instanceof Error ? err.message : "Upload selhal"
+                }
+              : x
+          )
+        );
+      }
+    }
+  }
+
+  async function generate() {
+    if (!brief.trim()) {
+      setMessage("Nejdříve napište krátký brief.");
+      return;
+    }
+    setLoading(true);
+    setMessage("");
+    try {
+      const r = await fetch("/api/ai/caption", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief, language: "cs", tone: "friendly gastro" })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error);
+      setCaption(j.caption || "");
+      if (j.warning) setMessage(j.warning);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "AI chyba");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function generateMedia(kind: "image" | "video") {
+    if (!brief.trim()) {
+      setMessage("Nejdříve napište krátký brief.");
+      return;
+    }
+    setAiMediaLoading(kind);
+    setAiProgress(0);
+    setMessage(kind === "video" ? "AI Reel se připravuje. Tato stránka musí zůstat otevřená." : "AI obrázek se generuje…");
+
+    try {
+      const start = await fetch("/api/ai/media", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief, kind, language: "cs" })
+      });
+      const started = await start.json();
+      if (!start.ok) throw new Error(started.error || "AI generation failed");
+
+      if (kind === "image") {
+        setMedia(m => [...m.filter(x => x.resourceType !== "image" || m.length > 1), started.asset]);
+        setMessage("AI obrázek byl vytvořen a uložen na Cloudinary.");
+        return;
+      }
+
+      const jobId = started.jobId;
+      if (!jobId) throw new Error("OpenAI nevrátil video job ID");
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await sleep(10000);
+        const statusResponse = await fetch(`/api/ai/media?id=${encodeURIComponent(jobId)}`, { cache: "no-store" });
+        const status = await statusResponse.json();
+        if (!statusResponse.ok) throw new Error(status.error || "Kontrola videa selhala");
+        setAiProgress(Number(status.progress || 0));
+        setMessage(`AI Reel se generuje… ${Math.round(Number(status.progress || 0))}%`);
+        if (status.status === "completed" && status.asset) {
+          setMedia([status.asset]);
+          setMessage("AI Reel byl vytvořen, uložen na Cloudinary a je připravený k naplánování.");
+          return;
+        }
+      }
+      throw new Error("Generování videa trvá příliš dlouho. Zkuste to znovu později.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "AI generation failed");
+    } finally {
+      setAiMediaLoading(null);
+    }
+  }
+
+  async function save(status: "draft" | "scheduled") {
+    setMessage("");
+    if (!clientId || !title.trim() || !caption.trim()) {
+      setMessage("Vyberte klienta a vyplňte název i text.");
+      return;
+    }
+    if (!media.length || media.some(m => m.uploadStatus !== "uploaded")) {
+      setMessage("Počkejte na dokončení uploadu médií.");
+      return;
+    }
+    const scheduledAt = new Date(`${date}T${time}:00`).toISOString();
+    setSaving(true);
+    try {
+      const r = await fetch("/api/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: clientId,
+          title,
+          brief,
+          caption,
+          media_type: mediaType,
+          media_urls: media.map(({ url, publicId, resourceType, originalFilename, bytes }) => ({
+            url,
+            publicId,
+            resourceType,
+            originalFilename,
+            bytes
+          })),
+          scheduled_at: scheduledAt,
+          status,
+          platforms
+        })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Uložení selhalo");
+      setMessage(status === "draft" ? "Koncept byl uložen." : "Příspěvek byl naplánován.");
+      if (status === "scheduled") setTimeout(() => (location.href = "/posts"), 700);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Uložení selhalo");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <AppShell title="Nový příspěvek" subtitle="Jeden formulář od AI tvorby až po automatické publikování.">
+      <div className="form-shell">
+        <div className="panel form-card">
+          <div className="section-heading">
+            <div>
+              <h2>Obsah příspěvku</h2>
+              <p>Vytvořte text, obrázek nebo Reel pomocí AI, případně nahrajte vlastní média.</p>
+            </div>
+            <span className="badge scheduled">{mediaType}</span>
+          </div>
+
+          <div className="form-grid">
+            <div className="field">
+              <label>Klient</label>
+              <select value={clientId} onChange={e => setClientId(e.target.value)}>
+                <option value="">Vyberte klienta</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field">
+              <label>Název</label>
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Interní název příspěvku" />
+            </div>
+
+            <div className="field full">
+              <label>Brief pro AI</label>
+              <textarea
+                value={brief}
+                onChange={e => setBrief(e.target.value)}
+                placeholder="Popište nabídku, produkt, scénu, cílovou skupinu a požadovaný styl…"
+              />
+              <div className="platforms">
+                <button type="button" className="button" onClick={generate} disabled={loading || !!aiMediaLoading}>
+                  {loading ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />} AI text
+                </button>
+                <button type="button" className="button" onClick={() => generateMedia("image")} disabled={loading || !!aiMediaLoading}>
+                  {aiMediaLoading === "image" ? <LoaderCircle className="spin" size={16} /> : <WandSparkles size={16} />} AI obrázek
+                </button>
+                <button type="button" className="button primary" onClick={() => generateMedia("video")} disabled={loading || !!aiMediaLoading}>
+                  {aiMediaLoading === "video" ? <LoaderCircle className="spin" size={16} /> : <VideoIcon size={16} />} AI Reel
+                </button>
+              </div>
+              {aiMediaLoading === "video" && <small>Průběh: {Math.round(aiProgress)} % · generování může trvat několik minut.</small>}
+            </div>
+
+            <div className="field full">
+              <label>Média</label>
+              <button type="button" className="upload-zone" onClick={() => inputRef.current?.click()}>
+                <UploadCloud size={25} />
+                <span>
+                  <strong>Nahrát fotografie nebo video</strong>
+                  <small>JPG, PNG, WEBP, MP4 · automatické rozpoznání formátu</small>
+                </span>
+              </button>
+              <input ref={inputRef} type="file" hidden multiple accept="image/*,video/*" onChange={upload} />
+              {media.length > 0 && (
+                <div className="media-list">
+                  {media.map(m => (
+                    <div className="media-row" key={m.publicId}>
+                      {m.resourceType === "video" ? <video src={m.localUrl || m.url} /> : <img src={m.localUrl || m.url} alt="" />}
+                      <div>
+                        <strong>{m.originalFilename || m.publicId}</strong>
+                        <small>{m.uploadStatus}{m.errorMessage ? ` · ${m.errorMessage}` : ""}</small>
+                      </div>
+                      <button className="button danger" type="button" onClick={() => setMedia(x => x.filter(i => i.publicId !== m.publicId))}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="field full">
+              <label>Text příspěvku</label>
+              <textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="Hotový text příspěvku" />
+            </div>
+
+            <div className="field">
+              <label>Datum</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Čas (Praha)</label>
+              <input type="time" value={time} onChange={e => setTime(e.target.value)} />
+            </div>
+
+            <div className="field full">
+              <label>Platformy</label>
+              <div className="platforms">
+                <label className="platform-pill">
+                  <input
+                    type="checkbox"
+                    checked={platforms.includes("instagram")}
+                    onChange={e =>
+                      setPlatforms(e.target.checked ? [...new Set([...platforms, "instagram"])] : platforms.filter(p => p !== "instagram"))
+                    }
+                  />
+                  <span><Instagram size={15} /> Instagram</span>
+                </label>
+              </div>
+            </div>
+
+            {message && (
+              <div className={`field full notice ${message.includes("byl") || message.includes("připravený") || message.includes("naplánován") ? "success" : "error"}`}>
+                {message}
+              </div>
+            )}
+          </div>
+
+          <div className="form-actions">
+            <button className="button" type="button" disabled={saving || !!aiMediaLoading} onClick={() => save("draft")}>
+              <Save size={16} /> Uložit koncept
+            </button>
+            <button className="button primary" type="button" disabled={saving || !!aiMediaLoading} onClick={() => save("scheduled")}>
+              <ImagePlus size={16} /> Naplánovat a publikovat
+            </button>
+          </div>
+        </div>
+
+        <div className="panel preview-card">
+          <div className="section-heading">
+            <div><h2>Náhled</h2><p>Orientační vzhled na Instagramu</p></div>
+          </div>
+          <div className="phone">
+            <div className="phone-head">Instagram</div>
+            <div className="phone-media">
+              {first ? (first.resourceType === "video" ? <video src={first.localUrl || first.url} controls /> : <img src={first.localUrl || first.url} alt="" />) : <ImagePlus size={42} />}
+            </div>
+            <div className="phone-body">
+              <div className="phone-user"><span className="avatar">AI</span><strong>{clients.find(c => c.id === clientId)?.name || "Váš klient"}</strong></div>
+              <div className="phone-caption">{caption || "Text příspěvku se zobrazí zde."}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </AppShell>
+  );
+}
