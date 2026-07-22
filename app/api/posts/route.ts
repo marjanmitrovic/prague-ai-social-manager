@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSql, hasDatabaseConfig } from "@/lib/db";
+import { ensureMultiplatformSchema } from "@/lib/multiplatform-schema";
 import { defaultTargetFormat, SOCIAL_PLATFORMS } from "@/lib/social/platforms";
 
 const asset = z.object({
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
     const input = schema.parse(await req.json());
     if (!hasDatabaseConfig()) return NextResponse.json({ error: "DATABASE_URL není nastavené." }, { status: 503 });
 
+    await ensureMultiplatformSchema();
     const sql = getSql();
     const clients = await sql`SELECT requires_approval FROM clients WHERE id = ${input.client_id}::uuid`;
     if (!clients[0]) return NextResponse.json({ error: "Klient neexistuje." }, { status: 404 });
@@ -82,34 +84,21 @@ export async function POST(req: Request) {
     for (const platform of input.platforms) {
       const platformCaption = input.platform_captions[platform] || input.caption;
       const targetFormat = defaultTargetFormat(platform, input.media_type);
-      try {
-        await sql`
-          INSERT INTO post_targets(post_id, platform, target_format, platform_caption, status)
-          VALUES(
-            ${post.id}::uuid,
-            ${platform}::platform_name,
-            ${targetFormat},
-            ${platformCaption},
-            ${finalStatus}::post_status
-          )
-          ON CONFLICT(post_id, platform) DO UPDATE SET
-            target_format = EXCLUDED.target_format,
-            platform_caption = EXCLUDED.platform_caption,
-            status = EXCLUDED.status,
-            error_message = NULL
-        `;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "";
-        if (!/platform_caption/i.test(message)) throw error;
-        await sql`
-          INSERT INTO post_targets(post_id, platform, target_format, status)
-          VALUES(${post.id}::uuid, ${platform}::platform_name, ${targetFormat}, ${finalStatus}::post_status)
-          ON CONFLICT(post_id, platform) DO UPDATE SET
-            target_format = EXCLUDED.target_format,
-            status = EXCLUDED.status,
-            error_message = NULL
-        `;
-      }
+      await sql`
+        INSERT INTO post_targets(post_id, platform, target_format, platform_caption, status)
+        VALUES(
+          ${post.id}::uuid,
+          ${platform}::platform_name,
+          ${targetFormat},
+          ${platformCaption},
+          ${finalStatus}::post_status
+        )
+        ON CONFLICT(post_id, platform) DO UPDATE SET
+          target_format = EXCLUDED.target_format,
+          platform_caption = EXCLUDED.platform_caption,
+          status = EXCLUDED.status,
+          error_message = NULL
+      `;
     }
 
     await sql`
@@ -127,10 +116,6 @@ export async function POST(req: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.issues.map(issue => issue.message).join(" ") }, { status: 400 });
     }
-    const message = error instanceof Error ? error.message : "Invalid input";
-    if (/invalid input value for enum platform_name/i.test(message)) {
-      return NextResponse.json({ error: "Nejdříve spusťte migraci migrations/002_multiplatform.sql v Neon databázi." }, { status: 409 });
-    }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid input" }, { status: 500 });
   }
 }
