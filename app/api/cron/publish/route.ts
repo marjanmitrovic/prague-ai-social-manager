@@ -29,30 +29,60 @@ export async function GET(request: Request) {
   }
 
   const sql = getSql();
-  const targets = await sql`
-    SELECT
-      pt.id target_id,
-      pt.platform,
-      pt.target_format,
-      p.id post_id,
-      p.title,
-      COALESCE(pt.platform_caption, p.caption) caption,
-      p.media_type,
-      p.media_urls,
-      sa.external_account_id,
-      sa.access_token_encrypted
-    FROM post_targets pt
-    JOIN posts p ON p.id = pt.post_id
-    LEFT JOIN social_accounts sa
-      ON sa.client_id = p.client_id
-      AND sa.platform = pt.platform
-      AND sa.connection_status = 'connected'
-    WHERE pt.status = 'scheduled'
-      AND p.status IN ('scheduled', 'manual_action')
-      AND p.scheduled_at <= NOW()
-    ORDER BY p.scheduled_at
-    LIMIT 20
-  `;
+  let targets: any[];
+  try {
+    targets = await sql`
+      SELECT
+        pt.id target_id,
+        pt.platform,
+        pt.target_format,
+        p.id post_id,
+        p.title,
+        COALESCE(pt.platform_caption, p.caption) caption,
+        p.media_type,
+        p.media_urls,
+        sa.external_account_id,
+        sa.access_token_encrypted
+      FROM post_targets pt
+      JOIN posts p ON p.id = pt.post_id
+      LEFT JOIN social_accounts sa
+        ON sa.client_id = p.client_id
+        AND sa.platform = pt.platform
+        AND sa.connection_status = 'connected'
+      WHERE pt.status = 'scheduled'
+        AND p.status IN ('scheduled', 'manual_action')
+        AND p.scheduled_at <= NOW()
+      ORDER BY p.scheduled_at
+      LIMIT 20
+    `;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (!/platform_caption|manual_action/i.test(message)) throw error;
+    targets = await sql`
+      SELECT
+        pt.id target_id,
+        pt.platform,
+        pt.target_format,
+        p.id post_id,
+        p.title,
+        p.caption,
+        p.media_type,
+        p.media_urls,
+        sa.external_account_id,
+        sa.access_token_encrypted
+      FROM post_targets pt
+      JOIN posts p ON p.id = pt.post_id
+      LEFT JOIN social_accounts sa
+        ON sa.client_id = p.client_id
+        AND sa.platform = pt.platform
+        AND sa.connection_status = 'connected'
+      WHERE pt.status = 'scheduled'
+        AND p.status = 'scheduled'
+        AND p.scheduled_at <= NOW()
+      ORDER BY p.scheduled_at
+      LIMIT 20
+    `;
+  }
 
   const results: any[] = [];
 
@@ -103,11 +133,20 @@ export async function GET(request: Request) {
       const retryable = !manual && /timeout|not available|not ready|processing|temporarily/i.test(message);
       const status = manual ? "manual_action" : retryable ? "scheduled" : "failed";
 
-      await sql`
-        UPDATE post_targets
-        SET status = ${status}::post_status, error_message = ${message}
-        WHERE id = ${target.target_id}::uuid
-      `;
+      try {
+        await sql`
+          UPDATE post_targets
+          SET status = ${status}::post_status, error_message = ${message}
+          WHERE id = ${target.target_id}::uuid
+        `;
+      } catch (statusError) {
+        if (!manual) throw statusError;
+        await sql`
+          UPDATE post_targets
+          SET status = 'failed', error_message = ${message}
+          WHERE id = ${target.target_id}::uuid
+        `;
+      }
 
       results.push({
         targetId: target.target_id,
@@ -135,11 +174,20 @@ export async function GET(request: Request) {
             ? "manual_action"
             : "scheduled";
 
-    await sql`
-      UPDATE posts
-      SET status = ${nextStatus}::post_status, updated_at = NOW()
-      WHERE id = ${target.post_id}::uuid
-    `;
+    try {
+      await sql`
+        UPDATE posts
+        SET status = ${nextStatus}::post_status, updated_at = NOW()
+        WHERE id = ${target.post_id}::uuid
+      `;
+    } catch (statusError) {
+      if (nextStatus !== "manual_action") throw statusError;
+      await sql`
+        UPDATE posts
+        SET status = 'failed', updated_at = NOW()
+        WHERE id = ${target.post_id}::uuid
+      `;
+    }
   }
 
   return NextResponse.json({ ok: true, processed: results.length, results });
