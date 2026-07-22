@@ -33,15 +33,11 @@ Selhání jedné sítě nezastaví publikování na ostatních sítích.
 - Platform-specific publishing adapters
 - Scheduled publisher endpoint
 
-## Povinná databázová migrace
+## Databázová migrace
 
-Před prvním uložením příspěvku pro nové sítě spusťte v Neon SQL editoru:
+Aplikace při prvním připojení nového účtu nebo vytvoření vícesíťového příspěvku automaticky a idempotentně rozšíří Neon schéma. Přidá nové hodnoty `platform_name`, stav `manual_action`, platformní text v `post_targets` a potřebný index.
 
-```sql
--- obsah souboru migrations/002_multiplatform.sql
-```
-
-Migrace rozšíří `platform_name`, přidá stav `manual_action` a uložiště textu přizpůsobeného pro konkrétní síť.
+Soubor `migrations/002_multiplatform.sql` zůstává v repozitáři jako záloha pro ruční administraci databáze.
 
 ## Připojení účtů
 
