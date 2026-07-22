@@ -1,5 +1,13 @@
+import { publishFacebook } from "@/lib/social/facebook";
 import { publishInstagram } from "@/lib/social/instagram";
-import { platformLabel, SocialPlatform } from "@/lib/social/platforms";
+import { publishLinkedIn } from "@/lib/social/linkedin";
+import { publishPinterest } from "@/lib/social/pinterest";
+import { publishThreads } from "@/lib/social/threads";
+import { publishTikTok } from "@/lib/social/tiktok";
+import { publishX } from "@/lib/social/x";
+import { publishYouTube } from "@/lib/social/youtube";
+import { platformLabel } from "@/lib/social/platforms";
+import type { SocialPlatform } from "@/lib/social/platforms";
 
 export type PublishAsset = {
   url: string;
@@ -44,15 +52,18 @@ export async function publishToPlatform(input: PublishInput): Promise<PublishRes
         caption: input.caption,
       });
     case "facebook":
+      return publishFacebook(input);
     case "linkedin":
+      return publishLinkedIn(input);
     case "x":
+      return publishX(input);
     case "tiktok":
+      return publishTikTok(input);
     case "youtube":
+      return publishYouTube(input);
     case "threads":
+      return publishThreads(input);
     case "pinterest":
-      throw new ManualPublishingRequiredError(
-        input.platform,
-        `${platformLabel(input.platform)} je připravený v univerzálním workflow, ale automatické odeslání vyžaduje OAuth připojení a schválený přístup k publikačnímu API.`
-      );
+      return publishPinterest(input);
   }
 }
