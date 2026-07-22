@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { encryptSecret } from "@/lib/crypto";
 import { getSql, hasDatabaseConfig } from "@/lib/db";
+import { ensureMultiplatformSchema } from "@/lib/multiplatform-schema";
 import { SOCIAL_PLATFORMS } from "@/lib/social/platforms";
 
 const schema = z.object({
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
     const input = schema.parse(raw);
     if (!hasDatabaseConfig()) throw new Error("DATABASE_URL není nastavené.");
 
+    await ensureMultiplatformSchema();
     const sql = getSql();
     await sql`
       INSERT INTO social_accounts(
